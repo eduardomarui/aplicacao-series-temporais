@@ -189,3 +189,35 @@ plt.ylabel("Preço")
 plt.legend()
 plt.savefig("comparacao_final.png")
 plt.close()
+# ============================================================
+# 7. Gráficos das Diferenças
+# ------------------------------------------------------------
+# 7.1 Diferença entre a interpolação do 2x pooling e a série 1x pooling
+# ------------------------------------------------------------
+# Dif = serie_interpolada - serie_convolucionada_pool
+diff_1x = serie_interpolada - serie_convolucionada_pool
+
+plt.figure(figsize=(12, 6))
+plt.plot(diff_1x, label="Diferença: Interpolação 2x Pooling - Série 1x Pooling", color='brown')
+plt.axhline(0, linestyle='--', color='gray', linewidth=1)
+plt.title("Diferença entre Interpolação do 2x Pooling e Série 1x Pooling")
+plt.xlabel("Blocos de 2 períodos (resolução do 1x pooling)")
+plt.ylabel("Diferença de Preço")
+plt.legend()
+plt.savefig("diferenca_interpolacao_1x.png")
+plt.close()
+
+# 7.2 Diferença entre a série re-interpolada para resolução original e a série original
+# ------------------------------------------------------------
+# Dif2 = serie_interpolada_original - serie_original
+diff_orig = serie_interpolada_original - serie_original
+
+plt.figure(figsize=(12, 6))
+plt.plot(diff_orig, label="Diferença: Interpolação p/ Original - Série Original", color='magenta')
+plt.axhline(0, linestyle='--', color='gray', linewidth=1)
+plt.title("Diferença entre Interpolação para Resolução Original e Série Original")
+plt.xlabel("Observações (dias)")
+plt.ylabel("Diferença de Preço")
+plt.legend()
+plt.savefig("diferenca_interpolacao_original.png")
+plt.close()
