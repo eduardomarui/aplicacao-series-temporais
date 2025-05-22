@@ -221,3 +221,29 @@ plt.ylabel("Diferença de Preço")
 plt.legend()
 plt.savefig("diferenca_interpolacao_original.png")
 plt.close()
+
+# Diferença: serie_interpolada_original - serie_convolucionada
+diff_conv = serie_interpolada_original - serie_convolucionada
+
+plt.figure(figsize=(12, 6))
+plt.plot(diff_conv, label="Diferença: Interpolação p/ Original - Série Convolucionada", linestyle='-', color='cyan')
+plt.axhline(0, linestyle='--', color='gray', linewidth=1)
+plt.title("Diferença entre Interpolação para Resolução Original após 2x Average Pooling e Série Convolucionada")
+plt.xlabel("Observações (dias)")
+plt.ylabel("Diferença de Preço")
+plt.legend()
+plt.savefig("diferenca_interpolacao_convolucao.png")
+plt.close()
+
+# ============================================================
+# 8. Comparação: Série Interpolada para Resolução Original vs Série Convolucionada
+# ------------------------------------------------------------
+plt.figure(figsize=(12, 6))
+plt.plot(serie_convolucionada, label="Série Convolucionada (Média Móvel 10 períodos)", color='green')
+plt.plot(serie_interpolada_original, label="Série Interpolada p/ Resolução Original", color='purple', linestyle='--')
+plt.title("Comparação: Série Convolucionada vs. Série Interpolada p/ Resolução Original após 2x Pooling")
+plt.xlabel("Observações (dias)")
+plt.ylabel("Preço")
+plt.legend()
+plt.savefig("comparacao_interpolacao_convolucao.png")
+plt.close()

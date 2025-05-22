@@ -23,7 +23,7 @@ n       = len(serie)
 
 # 2. Divisão treino/teste (Box–Jenkins)
 #    - Treino: primeiros 70% → usado para identificar e ajustar o ARIMA
-#    - Teste: últimos 30% → validação out-of-sample em horizonte de curto prazo
+#    - Teste: últimos 30% → validação out-of-sample em horizonte de curto prazoa
 n_train = int(0.7 * n)
 train   = serie[:n_train]
 test    = serie[n_train:]
@@ -83,12 +83,18 @@ fc_x   = test_x[h-1:]  # desloca h-1 para alinhar 3-ahead ao dia certo
 fig, ax = plt.subplots(figsize=(10,5))
 ax.plot(all_x, serie, color='lightgray', label='Série completa')
 ax.plot(hist_x, serie[n_train-window:n_train], color='blue',
-        label=f'Histórico ({window} dias)')
+        label=f'({window} dias da série original antes de começar o teste)')
 ax.scatter(fc_x, real_vals, color='black', zorder=5,
            label='Real (3 dias à frente)')
 ax.plot(fc_x, predictions, '--x', color='red',
         label='Forecast 3 dias à frente')
-ax.axvline(n_train - 0.5, color='gray', linestyle=':')
+# Desenha a linha tracejada marcando o fim do treino e já define o label
+ax.axvline(
+    n_train - 0.5,
+    color='gray',
+    linestyle='--',
+    label='Fim dos 70% de treinamento'
+)
 ax.set_xlim(n_train - window, fc_x[-1] + 1)
 
 # Ajuste de eixo y com pequena margem
