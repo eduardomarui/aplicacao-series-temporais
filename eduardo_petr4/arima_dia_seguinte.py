@@ -18,7 +18,7 @@ df['Preço'] = (
       .str.replace(',', '.', regex=False)  # converte vírgula→ponto
       .astype(float)
 )
-serie   = df['Preço'].values[::-1]
+serie   = df['Preço'].values[::-1][-360:]  # Últimos 360 dias
 n       = len(serie)
 
 # 2. Divisão treino/teste (Box–Jenkins)
@@ -75,42 +75,21 @@ hist_x = np.arange(n_train - window, n_train)
 test_x = np.arange(n_train, n_train + len(test))
 fc_x   = test_x[h-1:]  # desloca h-1 para alinhar 3-ahead ao dia certo
 
-# 8. Plotagem (visualização em múltiplas escalas)
-#    - Fundo cinza: série completa (semelhante ao “multi-scale” do TCN)
-#    - Azul: zoom nos últimos 10 dias de treino (contexto local)
-#    - Preto: valores reais para 3-ahead, no mesmo dia que o ponto previsto
-#    - Vermelho: previsões de 3-ahead, mostrando acurácia de curto prazo
+# 8. Plotagem (foco nos dias de teste e previsão, com contexto dos 10 dias anteriores)
+#    - Azul: últimos 10 dias de treino (contexto)
+#    - Preto: dados de teste (reais) com marcadores
+#    - Vermelho tracejado: previsões de 3 dias à frente com marcadores
 fig, ax = plt.subplots(figsize=(10,5))
-ax.plot(all_x, serie, color='lightgray', label='Série completa')
-ax.plot(hist_x, serie[n_train-window:n_train], color='blue',
-        label=f'({window} dias da série original antes de começar o teste)')
-ax.scatter(fc_x, real_vals, color='black', zorder=5,
-           label='Real (3 dias à frente)')
-ax.plot(fc_x, predictions, '--x', color='red',
-        label='Forecast 3 dias à frente')
-# Desenha a linha tracejada marcando o fim do treino e já define o label
-ax.axvline(
-    n_train - 0.5,
-    color='gray',
-    linestyle='--',
-    label='Fim dos 70% de treinamento'
-)
+ax.plot(hist_x, serie[n_train-window:n_train], color='blue', label='Últimos 10 dias de treino')
+ax.plot(test_x[h-1:], test[h-1:], 'o-', color='black', label='Teste (real)')
+ax.plot(fc_x, predictions, '--o', color='red', label='Previsão 3 dias à frente')
+ax.axvline(n_train - 0.5, color='gray', linestyle='--', label='Fim do treino')
 ax.set_xlim(n_train - window, fc_x[-1] + 1)
-
-# Ajuste de eixo y com pequena margem
-all_plot = np.concatenate([serie[n_train-window:n_train], real_vals, predictions])
-ymin, ymax = all_plot.min(), all_plot.max()
-marg = (ymax - ymin) * 0.05
-ax.set_ylim(ymin - marg, ymax + marg)
-ax.yaxis.set_major_locator(ticker.AutoLocator())
-ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
-
-# Legendas e título resumem parâmetros e relacionam ao framework TCN
 ax.set_xlabel('Dias (índice)')
 ax.set_ylabel('Preço (R$)')
 ax.set_title(
     f'ARIMA({p},{d},{q}) rolling · previsão 3 dias à frente\n'
-    f'MAE: {mae:.4f} | RMSE: {rmse:.4f}\n'
+    f'MAE: {mae:.4f} | RMSE: {rmse:.4f}'
 )
 ax.legend()
 plt.tight_layout()
