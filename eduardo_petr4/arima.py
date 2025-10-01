@@ -1,95 +1,116 @@
+# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-# =============================================================================
-# Implementação de ARIMA(2, d, 1) para previsão multi‑passo na série PETR4
-# =============================================================================
-
-# 1. Leitura e pré‑processamento da série histórica
-# -------------------------------------------------
-# - 'PETR4 Dados Históricos (1).csv' contém datas e preços no formato brasileiro.
-# - Convertemos a coluna 'Último' para float: removemos separadores de milhar ('.')
-#   e trocamos vírgulas por pontos para decimais.
+# 1. Leitura e pré-processamento
+# ------------------------------------------------------------------
 df = pd.read_csv('PETR4 Dados Históricos (1).csv', delimiter=',', encoding='utf-8')
-df['Preço'] = (df['Último']
-               .str.replace('.', '', regex=False)  # retira pontos de milhar
-               .str.replace(',', '.', regex=False) # vírgula → ponto decimal
-               .astype(float))
+df['Preço'] = (
+    df['Último']
+      .str.replace('.', '', regex=False)
+      .str.replace(',', '.', regex=False)
+      .astype(float)
+)
+serie    = df['Preço'].values[::-1]      # ordem cronológica (mais antigo → índice 0)
+n        = len(serie)
+n_train  = int(0.7 * n)
+train    = serie[:n_train]
+test_obs = serie[n_train:]               # toda a parte de teste
 
-# Inverte para ordem cronológica (do mais antigo para o mais recente)
-serie = df['Preço'].values[::-1]
-
-# 2. Divisão treino/teste (70% / 30%)
-# -----------------------------------
-# - Treino: primeiras 70% observações → usado para ajustar (fit) o ARIMA.
-# - Teste: últimas 30% observações → usado para avaliar o forecast multi‑passo.
-n = len(serie)
-n_train = int(0.7 * n)
-train, test = serie[:n_train], serie[n_train:]
-
-# 3. Teste de estacionariedade (ADF) para definir d
-# -------------------------------------------------
-# - ARIMA requer série estacionária: sem tendência ou raiz unitária.
-# - O parâmetro d é a "ordem de integração": número de vezes que se aplica diferenciação
-#   para estabilizar média e variância da série.
-# - Usamos o teste de Dickey–Fuller Aumentado (ADF):
-#     * H0: existe raiz unitária (série não estacionária).
-#     * p-value < 0.05 → rejeita H0 → série estacionária → d = 0 (sem diferenciação).
-#     * p-value ≥ 0.05 → não estacionária → escolhemos d = 1 (diferenciação simples).
+# 2. Definir d via ADF
+# ------------------------------------------------------------------
 adf_p = adfuller(train)[1]
-d     = 0 if adf_p < 0.05 else 1  # d = 0 ou 1 conforme estacionariedade
+d     = 0 if adf_p < 0.05 else 1
 
-# 4. Escolha manual de p e q com base em ACF/PACF (ou conhecimento prévio)
-# -------------------------------------------------------------------------
-# - p (AR order): número de lags autorregressivos → capturam dependência dos p últimos lags.
-#   Definimos p = 2 após observar autocorrelação parcial significativa até lag 2.
-# - q (MA order): número de lags do termo de média móvel → modela dependência de erros passados.
-#   Definimos q = 1 para incluir apenas o erro de previsão do passo anterior.
-p, q = 2, 1
+# 3. Parâmetros p, q e horizonte
+# ------------------------------------------------------------------
+p, q = 1, 1
+h    = 4   # queremos 4 previsões one-step-ahead
 
-# 5. Ajuste do modelo ARIMA
-# --------------------------
-# - ARIMA(p, d, q) com trend='t' adiciona um termo de "drift" (tendência linear) no nível.
-# - O drift é um coeficiente que permite ao modelo incorporar uma inclinação geral,
-#   projetando crescimento ou decréscimo contínuo, em vez de convergir sempre à média.
-# - Os coeficientes AR (phi_1, phi_2), MA (theta_1) e drift (mu) são estimados
-#   por máxima verossimilhança usando todo o conjunto de treino.
-model = ARIMA(train, order=(p, d, q), trend='t')
-res   = model.fit()
+# 4. Walk-forward forecasting
+# ------------------------------------------------------------------
+history     = list(train)
+predictions = []
+lower_ci    = []
+upper_ci    = []
 
-# 6. Forecast multi‑passo
-# -----------------------
-# - forecast(steps=h) projeta h = len(test) pontos de uma só vez,
-#   sem re‑alimentar o modelo com observações reais de teste.
-h        = len(test)
-forecast = res.forecast(steps=h)
+for t in range(h):
+    model  = ARIMA(history, order=(p, d, q), trend='t')
+    res    = model.fit()
+    fc_obj = res.get_forecast(steps=1)
+    yhat   = fc_obj.predicted_mean[0]
+    ci     = fc_obj.conf_int(alpha=0.05)  # array 1×2: [lower, upper]
 
-# 7. Avaliação de desempenho
-# ---------------------------
-# - MAE: erro médio absoluto (unidades da série, R$).
-# - RMSE: raiz do erro quadrático médio, penaliza mais discrepâncias grandes.
-mae  = mean_absolute_error(test, forecast)
-rmse = np.sqrt(mean_squared_error(test, forecast))
-print(f"Multi‑passo ARIMA({p},{d},{q}) — MAE: {mae:.4f}, RMSE: {rmse:.4f}")
+    predictions.append(yhat)
+    lower_ci.append(ci[0, 0])
+    upper_ci.append(ci[0, 1])
 
-# 8. Visualização e salvamento do gráfico
-# ----------------------------------------
-# - Compara série completa, treino, teste e previsões.
-# - plt.savefig() gera arquivo sem exibir na tela.
-plt.figure(figsize=(10, 5))
-plt.plot(serie,                       label='Série Completa',            color='lightgray')
-plt.plot(np.arange(n_train), train,   label='Treino (70%)',             color='blue')
-plt.plot(np.arange(n_train, n), test, label='Teste (30%)',              color='black')
-plt.plot(np.arange(n_train, n_train+h), forecast,
-         label='Forecast Multi‑Passo', linestyle='--', color='red')
-plt.axvline(n_train, color='gray', linestyle=':')
-plt.legend()
-plt.xlabel('Dias')
-plt.ylabel('Preço (R$)')
-plt.title(f'Forecast Multi‑Passo ARIMA({p},{d},{q})')
-plt.savefig('forecast_multipasso.png')
+    # incorpora o valor real para a próxima iteração
+    history.append(test_obs[t])
+
+predictions = np.array(predictions)
+lower_ci    = np.array(lower_ci)
+upper_ci    = np.array(upper_ci)
+
+# 5. Cálculo das métricas de erro sobre os h passos
+# ------------------------------------------------------------------
+real_vals = test_obs[:h]
+mae  = mean_absolute_error(real_vals, predictions)
+rmse = np.sqrt(mean_squared_error(real_vals, predictions))
+print(f"MAE:  {mae:.4f}")
+print(f"RMSE: {rmse:.4f}")
+
+# 6. Preparar dados para plot
+# ------------------------------------------------------------------
+window = 10
+start  = max(0, n_train - window)
+all_x    = np.arange(n)
+hist_x   = np.arange(start, n_train)
+fc_x     = np.arange(n_train, n_train + h)
+hist_y   = serie[start:n_train]
+real_y   = real_vals
+
+# 7. Plotagem com zoom e formatação em centavos
+# ------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(10,5))
+
+# fundo da série completa
+ax.plot(all_x, serie, color='lightgray', label='Série completa')
+
+# últimos window dias de histórico
+ax.plot(hist_x, hist_y, color='blue', label=f'Histórico (últimos {window} dias)')
+
+# valores reais dos h dias
+ax.plot(fc_x, real_y, 'o-', color='black', label=f'Real ({h} dias)')
+
+# previsões walk-forward
+ax.plot(fc_x, predictions, '--o', color='red', label='Forecast walk-forward')
+
+# intervalo de confiança 95%
+ax.fill_between(fc_x, lower_ci, upper_ci, alpha=0.3, label='IC 95%')
+
+# linha de corte e zoom horizontal
+ax.axvline(n_train - 1, color='gray', linestyle=':')
+ax.set_xlim(start, n_train + h)
+
+# zoom no eixo Y e formatação com duas casas decimais
+all_plot = np.concatenate([hist_y, real_y, predictions, lower_ci, upper_ci])
+ymin, ymax = all_plot.min(), all_plot.max()
+marg       = (ymax - ymin) * 0.05
+ax.set_ylim(ymin - marg, ymax + marg)
+ax.yaxis.set_major_locator(ticker.AutoLocator())
+ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+
+ax.set_xlabel('Dias (índice)')
+ax.set_ylabel('Preço (R$)')
+ax.set_title(f'ARIMA({p},{d},{q}) walk-forward — Últimos {window} dias + {h} dias forecast')
+ax.legend()
+plt.tight_layout()
+
+plt.savefig('forecast_walkforward_zoom.png')
 plt.close()
