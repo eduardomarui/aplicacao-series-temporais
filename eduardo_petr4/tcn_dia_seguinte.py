@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import StandardScaler
 import torch
 import torch.nn as nn
@@ -183,6 +183,9 @@ for empresa in empresas:
     print(f"\n🏢 Analisando empresa: {empresa}")
     print("=" * 80)
     
+    import time
+    tempo_inicio_empresa = time.time()
+    
     # Carregar dados da empresa atual
     df = pd.read_csv(arquivos_csv[empresa], delimiter=',', encoding='utf-8')
     
@@ -216,16 +219,16 @@ for empresa in empresas:
     test_scaled = scaler.transform(test.reshape(-1, 1)).flatten()        # aplica mesma transformação no teste
     serie_scaled = scaler.transform(serie.reshape(-1, 1)).flatten()      # série completa normalizada
     
-    # 6. Parâmetros da TCN (equivalentes ao ARIMA)
+    # 6. Parâmetros da TCN (Baseados na Tabela 2 do artigo)
     # ------------------------------------------------------------------
     # Vamos testar diferentes tamanhos de sequência para comparar performance
     seq_lengths_to_test = [3,5,10,15]  # diferentes tamanhos de observação
-    h = 3                       # horizonte de previsão de 3 dias (mesmo que ARIMA)
-    num_channels = [16, 32, 16] # arquitetura da TCN: 3 camadas com 16→32→16 filtros
-    kernel_size = 3             # tamanho do kernel convolucional (3 pontos temporais)
-    dropout = 0.2              # taxa de dropout para regularização
-    learning_rate = 0.01       # taxa de aprendizado (maior para convergir mais rápido)
-    epochs = 30                # menos épocas para ser mais rápido nos testes
+    h = 1                       # horizonte de previsão de 1 dia
+    num_channels = [16, 32, 16] # 3 camadas residuais (conforme artigo)
+    kernel_size = 2             # Filter size = 2 (conforme artigo)
+    dropout = 0.2              # taxa de dropout
+    learning_rate = 0.001      # Learning rate = 0.001 (conforme artigo)
+    epochs = 30                # épocas
     
     # 7. Rolling forecast com retraining para diferentes tamanhos de sequência
     # ------------------------------------------------------------------
@@ -306,7 +309,7 @@ for empresa in empresas:
             train_time = time.time() - train_start
             print(f" - Treino: {train_time:.1f}s - ", end="", flush=True)
             
-            # Fazer previsão 3 dias à frente
+            # Fazer previsão 1 dia à frente
             model.eval()
             with torch.no_grad():
                 # Usar os últimos seq_length pontos do histórico para prever
@@ -338,11 +341,13 @@ for empresa in empresas:
         
         # 9. Cálculo de métricas de erro
         # ------------------------------------------------------------------
-        real_vals = test[h-1:]  # valores reais alinhados (3 dias à frente)
+        real_vals = test[h-1:]  # valores reais alinhados (1 dia à frente)
         mae = mean_absolute_error(real_vals, predictions)
         rmse = np.sqrt(mean_squared_error(real_vals, predictions))
-        print(f"MAE ({seq_length} dias → 3 à frente):  {mae:.4f}")
-        print(f"RMSE ({seq_length} dias → 3 à frente): {rmse:.4f}")
+        mape = mean_absolute_percentage_error(real_vals, predictions) * 100
+        print(f"MAE ({seq_length} dias → 1 à frente):  {mae:.4f}")
+        print(f"RMSE ({seq_length} dias → 1 à frente): {rmse:.4f}")
+        print(f"MAPE ({seq_length} dias → 1 à frente): {mape:.2f}%")
         
         # Armazenar resultados para a tabela Excel
         all_results[seq_length] = {
@@ -350,6 +355,7 @@ for empresa in empresas:
             'real_vals': real_vals,
             'mae': mae,
             'rmse': rmse,
+            'mape': mape,
             'total_time': total_time
         }
         
@@ -359,7 +365,7 @@ for empresa in empresas:
         window = 10  # Mesmo que ARIMA
         hist_x = np.arange(n_train - window, n_train)
         test_x = np.arange(n_train, n_train + len(test))
-        fc_x = test_x[h-1:]  # eixo das previsões (alinhado 3 dias à frente)
+        fc_x = test_x[h-1:]  # eixo das previsões (alinhado 1 dia à frente)
         
         # 11. GRÁFICO 1: APENAS BOLINHAS (estilo ARIMA)
         # ------------------------------------------------------------------
@@ -368,13 +374,13 @@ for empresa in empresas:
         # Últimos dias de treino para contexto local (azul)
         ax.plot(hist_x, serie[n_train-window:n_train], color='blue', label='Últimos 10 dias de treino')
         
-        # Valores reais 3 dias à frente (linha com pontos pretos)
+        # Valores reais 1 dia à frente (linha com pontos pretos)
         ax.plot(fc_x, real_vals, 'o-', color='black', label='Teste (real)')
         
         # Previsões TCN (linha tracejada com pontos coloridos)
         colors = ['red', 'orange', 'green', 'purple']
         color_idx = seq_lengths_to_test.index(seq_length)
-        ax.plot(fc_x, predictions, '--o', color=colors[color_idx], label=f'Previsão 3 dias à frente')
+        ax.plot(fc_x, predictions, '--o', color=colors[color_idx], label=f'Previsão 1 dia à frente')
         
         # Linha vertical marcando fim do período de treino
         ax.axvline(n_train - 0.5, color='gray', linestyle='--', label='Fim do treino')
@@ -394,25 +400,28 @@ for empresa in empresas:
         ax.set_xlabel('Dias (índice)')
         ax.set_ylabel('Preço (R$)')
         ax.set_title(
-            f'{empresa} - TCN Rolling Forecast: {seq_length} dias → 3 à frente\n'
-            f'MAE: {mae:.4f} | RMSE: {rmse:.4f}'
+            f'{empresa} - TCN Rolling Forecast: {seq_length} dias → 1 à frente\n'
+            f'MAE: {mae:.4f} | RMSE: {rmse:.4f} | MAPE: {mape:.2f}% | Tempo: {total_time/60:.1f}min'
         )
         ax.legend()
         
         plt.tight_layout()
         
         # Salvar primeiro gráfico (bolinhas)
-        filename_dots = f'{empresa}_tcn_rolling_{seq_length}dias_bolinhas.png'
+        filename_dots = f'{empresa}_tcn_rolling_{seq_length}dias_bolinhas_1dia.png'
         plt.savefig(filename_dots, dpi=300, bbox_inches='tight')
         plt.close()
         
         print(f"✅ Gráfico salvo: '{filename_dots}'")
         print("=" * 80)
     
+    tempo_total_empresa = time.time() - tempo_inicio_empresa
+    
     print(f"\n🎉 Todos os testes para {empresa} concluídos!")
+    print(f"⏱️  Tempo total da empresa: {tempo_total_empresa:.2f}s ({tempo_total_empresa/60:.2f} min)")
     print("Gráficos salvos:")
     for seq_length in seq_lengths_to_test:
-        print(f"  📍 {empresa}_tcn_rolling_{seq_length}dias_bolinhas.png")
+        print(f"  📍 {empresa}_tcn_rolling_{seq_length}dias_bolinhas_1dia.png")
     
     # Gerar tabela Excel com médias a cada 3 dias
     print(f"\n📊 Gerando tabela Excel com médias a cada 3 dias para {empresa}...")
@@ -421,7 +430,7 @@ for empresa in empresas:
     data_base = datetime(2025, 3, 1)
     
     # Criar o arquivo Excel com múltiplas abas
-    excel_filename = f'{empresa}_tcn_previsoes_medias_3dias.xlsx'
+    excel_filename = f'{empresa}_tcn_previsoes_medias_3dias_h1.xlsx'
     
     with pd.ExcelWriter(excel_filename, engine='openpyxl') as writer:
         
@@ -433,6 +442,7 @@ for empresa in empresas:
             real_vals = all_results[seq_length]['real_vals']
             mae = all_results[seq_length]['mae']
             rmse = all_results[seq_length]['rmse']
+            mape = all_results[seq_length]['mape']
             
             # Calcular quantos grupos de 3 dias temos
             n_predictions = len(predictions)
@@ -487,10 +497,11 @@ for empresa in empresas:
             
             # Adicionar estatísticas resumo
             estatisticas = pd.DataFrame({
-                'Métrica': ['MAE Geral', 'RMSE Geral', 'Média Diff. Abs.', 'Média Diff. %', 'Tempo (min)'],
+                'Métrica': ['MAE Geral', 'RMSE Geral', 'MAPE Geral', 'Média Diff. Abs.', 'Média Diff. %', 'Tempo (min)'],
                 'Valor': [
                     f"{mae:.4f}",
-                    f"{rmse:.4f}", 
+                    f"{rmse:.4f}",
+                    f"{mape:.2f}%",
                     f"{np.mean(diferencas_abs):.2f}",
                     f"{np.mean(diferencas_perc):.2f}%",
                     f"{all_results[seq_length]['total_time']/60:.1f}"
